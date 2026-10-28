@@ -1,67 +1,231 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Events | EventOps</title>
-    <link rel="stylesheet"
-          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css">
+    <title>EventOps</title>
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
+        rel="stylesheet">
 </head>
 <body class="bg-light">
-<main class="container py-4" style="max-width: 900px">
-    <header class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h1>EventOps</h1>
-            <p class="text-secondary mb-0">Browse student organization events.</p>
-        </div>
-        <a href="/organizer.html" class="btn btn-outline-primary">Organizer</a>
-    </header>
+<nav class="navbar bg-white border-bottom">
+    <div class="container">
+        <a class="navbar-brand fw-bold" href="/">EventOps</a>
+        <a class="btn btn-outline-primary" href="/organizer.html">
+            Organizer
+        </a>
+    </div>
+</nav>
 
-    <p class="small text-secondary">Times use your device's time zone.</p>
-    <p id="status" role="status" aria-live="polite">Loading events...</p>
-    <div id="events"></div>
+<main class="container py-4">
+    <h1 class="mb-2">Events</h1>
+    <p class="text-secondary">
+        Find an event and register. If the event is full,
+        you will join its waitlist.
+    </p>
 
-    <template id="eventCard">
-        <article class="card mb-3 shadow-sm">
-            <div class="card-body">
-                <h2 class="event-title h5"></h2>
-                <p class="event-date text-secondary"></p>
-                <p class="event-location mb-1"></p>
-                <p class="event-capacity"></p>
-                <p class="event-description mb-0"></p>
-            </div>
-        </article>
-    </template>
+    <p id="pageMessage" role="status">Loading events...</p>
+    <div id="eventsList" class="row g-4"></div>
 </main>
 
+<template id="eventCard">
+    <div class="col-12 col-lg-6">
+        <article class="card h-100 shadow-sm">
+            <div class="card-body">
+                <h2 class="event-title h4"></h2>
+                <p class="event-date fw-semibold mb-1"></p>
+                <p class="event-location mb-1"></p>
+                <p class="event-capacity text-secondary"></p>
+                <p class="event-description" style="white-space: pre-wrap"></p>
+
+                <form class="registration-form border-top pt-3" method="post">
+                    <h3 class="h5">Register for this event</h3>
+
+                    <label class="form-label d-block">
+                        Full name
+                        <input
+                            class="form-control mt-1"
+                            type="text"
+                            name="fullName"
+                            autocomplete="name"
+                            maxlength="120"
+                            required>
+                    </label>
+
+                    <label class="form-label d-block">
+                        Email
+                        <input
+                            class="form-control mt-1"
+                            type="email"
+                            name="email"
+                            autocomplete="email"
+                            maxlength="254"
+                            required>
+                    </label>
+
+                    <button class="btn btn-primary mt-2" type="submit">
+                        Register
+                    </button>
+                </form>
+
+                <p class="registration-message mt-3"
+                   role="status" aria-live="polite" hidden></p>
+
+                <div class="registration-receipt border rounded p-3 mt-3"
+                     hidden>
+                    <h3 class="h5">Your registration receipt</h3>
+                    <p class="receipt-reference"></p>
+
+                    <label class="form-label d-block">
+                        Private registration code
+                        <input class="private-code form-control font-monospace"
+                               type="text" readonly>
+                    </label>
+
+                    <p class="small text-secondary mb-0">
+                        Save this code for managing your registration.
+                    </p>
+                </div>
+            </div>
+        </article>
+    </div>
+</template>
+
 <script>
+const eventsList = document.getElementById("eventsList");
+const pageMessage = document.getElementById("pageMessage");
+const eventTemplate = document.getElementById("eventCard");
+
 async function loadEvents() {
-    const list = document.getElementById("events");
-    const status = document.getElementById("status");
-
     try {
-        const response = await fetch("/api/events", {cache: "no-store"});
-        if (!response.ok) throw new Error("Request failed");
-        const events = await response.json();
+        const response = await fetch("/api/events", { cache: "no-store" });
+        if (!response.ok) {
+            throw new Error("Could not load events. Refresh to try again.");
+        }
 
-        list.replaceChildren();
-        status.textContent = events.length ? "" : "No events yet.";
+        const events = await response.json();
+        if (events.length === 0) {
+            pageMessage.textContent = "No events have been posted yet.";
+            return;
+        }
 
         for (const event of events) {
-            const card = document.getElementById("eventCard").content.cloneNode(true);
+            const fragment = eventTemplate.content.cloneNode(true);
+            const card = fragment.querySelector("article");
+
             card.querySelector(".event-title").textContent = event.title;
             card.querySelector(".event-date").textContent =
                 new Date(event.startsAt).toLocaleString();
-            card.querySelector(".event-location").textContent = event.location;
+            card.querySelector(".event-location").textContent =
+                "Location: " + event.location;
             card.querySelector(".event-capacity").textContent =
                 "Capacity: " + event.capacity;
-            card.querySelector(".event-description").textContent = event.description;
-            list.append(card);
+
+            const description = card.querySelector(".event-description");
+            description.textContent = event.description;
+            description.hidden = !event.description;
+
+            connectSignupForm(card, event);
+            eventsList.append(fragment);
         }
+
+        pageMessage.hidden = true;
     } catch (error) {
-        status.textContent = "Unable to load events. Refresh to try again.";
+        pageMessage.textContent = error.message;
     }
 }
+
+function connectSignupForm(card, event) {
+    const form = card.querySelector(".registration-form");
+    const button = form.querySelector('button[type="submit"]');
+    const message = card.querySelector(".registration-message");
+    const receipt = card.querySelector(".registration-receipt");
+    let saving = false;
+
+    form.addEventListener("submit", async (submitEvent) => {
+        submitEvent.preventDefault();
+        if (saving) return;
+
+        saving = true;
+        button.disabled = true;
+        button.textContent = "Submitting...";
+        message.hidden = true;
+
+        try {
+            const csrfResponse = await fetch("/api/csrf", {
+                cache: "no-store",
+                credentials: "same-origin"
+            });
+            if (!csrfResponse.ok) {
+                throw new Error("Could not prepare signup. Refresh and try again.");
+            }
+            const csrf = await csrfResponse.json();
+            const formData = new FormData(form);
+
+            const response = await fetch(
+                "/api/events/" + encodeURIComponent(event.id) + "/registrations",
+                {
+                    method: "POST",
+                    cache: "no-store",
+                    credentials: "same-origin",
+                    headers: {
+                        "Content-Type": "application/json",
+                        [csrf.headerName]: csrf.token
+                    },
+                    body: JSON.stringify({
+                        fullName: formData.get("fullName"),
+                        email: formData.get("email")
+                    })
+                }
+            );
+
+            if (response.redirected || response.status === 401 ||
+                    response.status === 403) {
+                throw new Error("Signup was blocked. Refresh this page and try again.");
+            }
+            if (response.status === 409) {
+                throw new Error("This email already has an active registration for this event.");
+            }
+            if (response.status === 400) {
+                throw new Error("Enter a name and a valid email address.");
+            }
+            if (response.status === 404) {
+                throw new Error("This event is no longer available.");
+            }
+            if (!response.ok) {
+                throw new Error("Registration failed. Please try again.");
+            }
+
+            const saved = await response.json();
+            const confirmed = saved.status === "CONFIRMED";
+
+            message.textContent = confirmed
+                ? "Your seat is confirmed!"
+                : "You have joined the waitlist.";
+            message.className = confirmed
+                ? "registration-message alert alert-success mt-3"
+                : "registration-message alert alert-warning mt-3";
+            message.hidden = false;
+
+            receipt.querySelector(".receipt-reference").textContent =
+                "Registration #" + saved.registrationId;
+            receipt.querySelector(".private-code").value =
+                saved.cancellationToken;
+            receipt.hidden = false;
+            form.hidden = true;
+        } catch (error) {
+            message.textContent = error.message;
+            message.className = "registration-message alert alert-danger mt-3";
+            message.hidden = false;
+        } finally {
+            saving = false;
+            button.disabled = false;
+            button.textContent = "Register";
+        }
+    });
+}
+
 loadEvents();
 </script>
 </body>

@@ -28,9 +28,11 @@ public class SecurityConfig {
                 ).permitAll()
                 .requestMatchers("/api/csrf").permitAll()
                 .requestMatchers("/organizer.html").hasRole("ORGANIZER")
+                .requestMatchers(HttpMethod.POST, "/api/events").hasRole("ORGANIZER")
                 .requestMatchers(
-                        HttpMethod.POST, "/api/events"
-                ).hasRole("ORGANIZER")
+                         HttpMethod.POST,
+                        "/api/events/*/registrations"
+                ).permitAll()
                 .anyRequest().denyAll()
         );
 
