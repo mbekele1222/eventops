@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Create an event | EventOps</title>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css">
+</head>
+<body class="bg-light">
+<main class="container py-4" style="max-width: 760px">
+    <nav class="d-flex justify-content-between mb-4">
+        <a href="/">Browse events</a>
+        <a href="/logout">Sign out</a>
+    </nav>
+
+    <h1 class="h2 mb-4">Create an event</h1>
+    <div id="message" class="alert d-none" role="status" aria-live="polite"></div>
+
+    <form id="eventForm" class="card card-body shadow-sm">
+        <label for="title" class="form-label">Title</label>
+        <input id="title" name="title" class="form-control mb-3"
+               maxlength="120" required>
+
+        <label for="description" class="form-label">Description</label>
+        <textarea id="description" name="description"
+                  class="form-control mb-3" rows="3" maxlength="5000"></textarea>
+
+        <label for="startsAt" class="form-label">Date and time</label>
+        <input id="startsAt" name="startsAt" type="datetime-local"
+               class="form-control" required>
+        <small class="text-secondary mb-3">Use your device's local time.</small>
+
+        <label for="location" class="form-label">Location</label>
+        <input id="location" name="location" class="form-control mb-3"
+               maxlength="200" required>
+
+        <label for="capacity" class="form-label">Capacity</label>
+        <input id="capacity" name="capacity" type="number"
+               class="form-control mb-4" min="1" max="2147483647"
+               step="1" required>
+
+        <button id="createButton" class="btn btn-primary" type="submit">
+            Create event
+        </button>
+    </form>
+</main>
+
+<script>
+const form = document.getElementById("eventForm");
+const message = document.getElementById("message");
+const button = document.getElementById("createButton");
+let saving = false;
+
+form.addEventListener("submit", async (submitEvent) => {
+    submitEvent.preventDefault();
+    if (saving) return;
+    saving = true;
+    button.disabled = true;
+    message.className = "alert d-none";
+
+    try {
+        const data = new FormData(form);
+        const startsAt = new Date(String(data.get("startsAt")));
+        if (Number.isNaN(startsAt.getTime())) {
+            throw new Error("Choose a valid date and time.");
+        }
+
+        const payload = {
+            title: data.get("title"),
+            description: data.get("description"),
+            startsAt: startsAt.toISOString(),
+            location: data.get("location"),
+            capacity: Number(data.get("capacity"))
+        };
+
+        const csrfResponse = await fetch("/api/csrf", {cache: "no-store"});
+        if (!csrfResponse.ok) {
+            throw new Error("Unable to prepare the form. Refresh and try again.");
+        }
+        const csrf = await csrfResponse.json();
+
+        const response = await fetch("/api/events", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                [csrf.headerName]: csrf.token
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (response.redirected || response.status === 401 || response.status === 403) {
+            throw new Error("Please refresh this page and sign in again.");
+        }
+        if (!response.ok) {
+            throw new Error(response.status === 400
+                ? "Check the required fields, text lengths, and positive capacity."
+                : "The event could not be saved. Please try again.");
+        }
+
+        const savedEvent = await response.json();
+        form.reset();
+        message.textContent = "Created: " + savedEvent.title;
+        message.className = "alert alert-success";
+    } catch (error) {
+        message.textContent = error.message;
+        message.className = "alert alert-danger";
+    } finally {
+        saving = false;
+        button.disabled = false;
+    }
+});
+</script>
+</body>
+</html>

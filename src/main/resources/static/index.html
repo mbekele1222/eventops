@@ -3,11 +3,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>EventOps</title>
+    <title>Events | EventOps</title>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css">
 </head>
-<body>
-    <h1>EventOps</h1>
-    <p>Student organization events, registration, and waitlists.</p>
-    <p>The application is running.</p>
+<body class="bg-light">
+<main class="container py-4" style="max-width: 900px">
+    <header class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1>EventOps</h1>
+            <p class="text-secondary mb-0">Browse student organization events.</p>
+        </div>
+        <a href="/organizer.html" class="btn btn-outline-primary">Organizer</a>
+    </header>
+
+    <p class="small text-secondary">Times use your device's time zone.</p>
+    <p id="status" role="status" aria-live="polite">Loading events...</p>
+    <div id="events"></div>
+
+    <template id="eventCard">
+        <article class="card mb-3 shadow-sm">
+            <div class="card-body">
+                <h2 class="event-title h5"></h2>
+                <p class="event-date text-secondary"></p>
+                <p class="event-location mb-1"></p>
+                <p class="event-capacity"></p>
+                <p class="event-description mb-0"></p>
+            </div>
+        </article>
+    </template>
+</main>
+
+<script>
+async function loadEvents() {
+    const list = document.getElementById("events");
+    const status = document.getElementById("status");
+
+    try {
+        const response = await fetch("/api/events", {cache: "no-store"});
+        if (!response.ok) throw new Error("Request failed");
+        const events = await response.json();
+
+        list.replaceChildren();
+        status.textContent = events.length ? "" : "No events yet.";
+
+        for (const event of events) {
+            const card = document.getElementById("eventCard").content.cloneNode(true);
+            card.querySelector(".event-title").textContent = event.title;
+            card.querySelector(".event-date").textContent =
+                new Date(event.startsAt).toLocaleString();
+            card.querySelector(".event-location").textContent = event.location;
+            card.querySelector(".event-capacity").textContent =
+                "Capacity: " + event.capacity;
+            card.querySelector(".event-description").textContent = event.description;
+            list.append(card);
+        }
+    } catch (error) {
+        status.textContent = "Unable to load events. Refresh to try again.";
+    }
+}
+loadEvents();
+</script>
 </body>
 </html>
