@@ -21,7 +21,7 @@ public class SecurityConfig {
 
         http.authorizeHttpRequests(auth -> auth
                 .requestMatchers(
-                        "/", "/index.html", "/assets/**", "/error"
+                        "/", "/index.html", "/manage.html", "/assets/**", "/error"
                 ).permitAll()
                 .requestMatchers(
                         HttpMethod.GET, "/api/events", "/api/events/*"
@@ -32,6 +32,11 @@ public class SecurityConfig {
                 .requestMatchers(
                          HttpMethod.POST,
                         "/api/events/*/registrations"
+                ).permitAll()
+                .requestMatchers(
+                        HttpMethod.POST,
+                        "/api/registrations/status",
+                        "/api/registrations/cancel"
                 ).permitAll()
                 .anyRequest().denyAll()
         );

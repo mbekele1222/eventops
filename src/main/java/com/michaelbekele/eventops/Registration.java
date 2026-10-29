@@ -61,6 +61,24 @@ public class Registration {
         createdAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
+    public void cancel() {
+        if (checkedIn) {
+            throw new IllegalStateException(
+                    "A checked-in registration cannot be cancelled"
+            );
+        }
+        status = RegistrationStatus.CANCELLED;
+    }
+
+    public void confirmFromWaitlist() {
+        if (status != RegistrationStatus.WAITLISTED) {
+            throw new IllegalStateException(
+                    "Only a waitlisted registration can be promoted"
+            );
+        }
+        status = RegistrationStatus.CONFIRMED;
+    }
+
     public Long getId() {
         return id;
     }

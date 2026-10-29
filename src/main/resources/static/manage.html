@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Manage registration | EventOps</title>
+    <meta name="referrer" content="no-referrer">
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
+        rel="stylesheet">
+</head>
+<body class="bg-light">
+<nav class="navbar bg-white border-bottom">
+    <div class="container">
+        <a class="navbar-brand fw-bold" href="/">EventOps</a>
+        <a class="btn btn-outline-primary" href="/">Browse events</a>
+    </div>
+</nav>
+
+<main class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-12 col-lg-7">
+            <h1 class="h2">Manage your registration</h1>
+            <p class="text-secondary">
+                Use the private code from your signup receipt to check your
+                current status or cancel your registration.
+            </p>
+
+            <form id="lookupForm" class="card card-body shadow-sm" method="post">
+                <label class="form-label" for="registrationCode">
+                    Private registration code
+                </label>
+                <input id="registrationCode" name="cancellationToken"
+                       class="form-control font-monospace" type="text"
+                       maxlength="128" autocomplete="off" autocapitalize="none"
+                       spellcheck="false" aria-describedby="codeHelp" required>
+                <p id="codeHelp" class="form-text mb-3">
+                    Keep this code private. It gives access to your registration.
+                </p>
+                <button id="lookupButton" class="btn btn-primary align-self-start"
+                        type="submit">Check status</button>
+            </form>
+
+            <p id="message" class="mt-3" role="status"
+               aria-live="polite" hidden></p>
+
+            <section id="registrationDetails" class="card card-body shadow-sm mt-4"
+                     aria-labelledby="eventTitle" hidden>
+                <h2 id="eventTitle" class="h4"></h2>
+                <p id="registrationReference" class="text-secondary mb-2"></p>
+                <p class="mb-2">
+                    Status: <strong id="registrationStatus"></strong>
+                </p>
+                <p id="statusHelp"></p>
+                <button id="cancelButton" type="button"
+                        class="btn btn-outline-danger align-self-start" hidden>
+                    Cancel registration
+                </button>
+
+                <div id="cancelConfirmation" class="border rounded p-3 mt-3" hidden>
+                    <h3 class="h6">Confirm cancellation</h3>
+                    <p id="cancellationExplanation"></p>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button id="confirmCancelButton" class="btn btn-danger"
+                                type="button">Confirm cancellation</button>
+                        <button id="keepButton" class="btn btn-outline-secondary"
+                                type="button">Keep registration</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+</main>
+
+<script>
+const form = document.getElementById("lookupForm");
+const codeInput = document.getElementById("registrationCode");
+const lookupButton = document.getElementById("lookupButton");
+const message = document.getElementById("message");
+const details = document.getElementById("registrationDetails");
+const cancelButton = document.getElementById("cancelButton");
+const confirmation = document.getElementById("cancelConfirmation");
+const confirmButton = document.getElementById("confirmCancelButton");
+const keepButton = document.getElementById("keepButton");
+let loadedToken = null;
+let registration = null;
+let busy = false;
+
+function showMessage(text, kind = "danger") {
+    message.textContent = text;
+    message.className = "alert alert-" + kind + " mt-3";
+    message.hidden = false;
+}
+
+function clearDetails() {
+    loadedToken = null;
+    registration = null;
+    details.hidden = true;
+    confirmation.hidden = true;
+    message.hidden = true;
+}
+
+function setBusy(value) {
+    busy = value;
+    codeInput.disabled = value;
+    lookupButton.disabled = value;
+    confirmButton.disabled = value;
+    keepButton.disabled = value;
+    cancelButton.disabled = value || !registration ||
+        registration.status === "CANCELLED" || registration.checkedIn;
+}
+
+function renderRegistration(data, token) {
+    const labels = {
+        CONFIRMED: "Confirmed",
+        WAITLISTED: "Waitlisted",
+        CANCELLED: "Cancelled"
+    };
+    if (!Object.hasOwn(labels, data.status)) {
+        throw new Error("Could not read your registration. Please check again.");
+    }
+
+    registration = data;
+    loadedToken = token;
+    document.getElementById("eventTitle").textContent = data.eventTitle;
+    document.getElementById("registrationReference").textContent =
+        "Registration #" + data.registrationId;
+    document.getElementById("registrationStatus").textContent = labels[data.status];
+
+    let help = "Your seat is confirmed.";
+    if (data.status === "WAITLISTED") {
+        help = "You are on the waitlist. Use Check status to see updates.";
+    } else if (data.status === "CANCELLED") {
+        help = "Your registration has been cancelled.";
+    } else if (data.checkedIn) {
+        help = "You are checked in for this event.";
+    }
+    document.getElementById("statusHelp").textContent = help;
+    cancelButton.hidden = data.status === "CANCELLED" || data.checkedIn;
+    confirmation.hidden = true;
+    details.hidden = false;
+}
+
+async function sendRequest(path, token) {
+    const csrfResponse = await fetch("/api/csrf", {
+        cache: "no-store",
+        credentials: "same-origin"
+    });
+    if (!csrfResponse.ok) {
+        throw new Error("Could not prepare your request. Refresh and try again.");
+    }
+    const csrf = await csrfResponse.json();
+    const response = await fetch(path, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: {
+            "Content-Type": "application/json",
+            [csrf.headerName]: csrf.token
+        },
+        body: JSON.stringify({ cancellationToken: token })
+    });
+
+    if (response.redirected || response.status === 401 || response.status === 403) {
+        throw new Error("Your request was blocked. Refresh and try again.");
+    }
+    if (response.status === 400) {
+        throw new Error("Paste the complete private code from your signup receipt.");
+    }
+    if (response.status === 404) {
+        throw new Error("No registration matches that code. Check it and try again.");
+    }
+    if (response.status === 409) {
+        throw new Error("Checked-in registrations cannot be cancelled.");
+    }
+    if (!response.ok) {
+        throw new Error("Could not complete your request. Please check your status again.");
+    }
+    return response.json();
+}
+
+function errorMessage(error) {
+    if (error instanceof TypeError || error instanceof SyntaxError) {
+        return "Could not reach EventOps. Refresh the page and try again.";
+    }
+    return error.message;
+}
+
+codeInput.addEventListener("input", clearDetails);
+
+form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    const token = codeInput.value.trim();
+    clearDetails();
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
+        showMessage("Paste the complete private code from your signup receipt.");
+        return;
+    }
+
+    codeInput.value = token;
+    setBusy(true);
+    lookupButton.textContent = "Checking...";
+    try {
+        const data = await sendRequest("/api/registrations/status", token);
+        renderRegistration(data, token);
+    } catch (error) {
+        clearDetails();
+        showMessage(errorMessage(error));
+    } finally {
+        setBusy(false);
+        lookupButton.textContent = "Check status";
+    }
+});
+
+cancelButton.addEventListener("click", () => {
+    if (busy || !registration || !loadedToken ||
+            registration.status === "CANCELLED" || registration.checkedIn) return;
+    document.getElementById("cancellationExplanation").textContent =
+        registration.status === "CONFIRMED"
+            ? "Cancelling releases your seat to the next person on the waitlist, if anyone is waiting."
+            : "Cancelling removes your place on the waitlist.";
+    confirmation.hidden = false;
+});
+
+keepButton.addEventListener("click", () => {
+    confirmation.hidden = true;
+});
+
+confirmButton.addEventListener("click", async () => {
+    if (busy || !loadedToken || confirmation.hidden) return;
+    const token = loadedToken;
+    setBusy(true);
+    message.hidden = true;
+    confirmButton.textContent = "Cancelling...";
+    try {
+        const data = await sendRequest("/api/registrations/cancel", token);
+        renderRegistration(data, token);
+        showMessage("Your registration has been cancelled.", "success");
+    } catch (error) {
+        clearDetails();
+        showMessage(errorMessage(error));
+    } finally {
+        setBusy(false);
+        confirmButton.textContent = "Confirm cancellation";
+    }
+});
+
+const initialCode = new URLSearchParams(window.location.hash.slice(1)).get("code");
+if (initialCode !== null) {
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    codeInput.value = initialCode;
+    form.requestSubmit();
+}
+</script>
+</body>
+</html>

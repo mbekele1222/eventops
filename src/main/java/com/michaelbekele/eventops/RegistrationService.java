@@ -82,6 +82,77 @@ public class RegistrationService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public RegistrationView getRegistration(RegistrationTokenRequest request) {
+        Registration registration = registrationRepository
+                .findByCancellationTokenHash(hashToken(request.cancellationToken()))
+                .orElseThrow(this::registrationNotFound);
+
+        return toView(registration);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public RegistrationView cancelRegistration(RegistrationTokenRequest request) {
+        String tokenHash = hashToken(request.cancellationToken());
+
+        // Read only the event ID before locking, so no stale Registration
+        // entity is cached while we wait for another transaction.
+        Long eventId = registrationRepository.findEventIdByTokenHash(tokenHash)
+                .orElseThrow(this::registrationNotFound);
+
+        // Every writer locks the event first, matching the signup transaction.
+        eventRepository.findByIdForUpdate(eventId)
+                .orElseThrow(this::registrationNotFound);
+
+        Registration registration = registrationRepository
+                .findForCancellation(eventId, tokenHash)
+                .orElseThrow(this::registrationNotFound);
+
+        // Repeating a cancellation must not promote another attendee.
+        if (registration.getStatus() == RegistrationStatus.CANCELLED) {
+            return toView(registration);
+        }
+
+        if (registration.isCheckedIn()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "A checked-in registration cannot be cancelled"
+            );
+        }
+
+        boolean releasesSeat =
+                registration.getStatus() == RegistrationStatus.CONFIRMED;
+
+        registration.cancel();
+        registrationRepository.flush();
+
+        if (releasesSeat) {
+            registrationRepository.findOldestWaitlistedForUpdate(eventId)
+                    .ifPresent(Registration::confirmFromWaitlist);
+        }
+
+        registrationRepository.flush();
+        return toView(registration);
+    }
+
+    private RegistrationView toView(Registration registration) {
+        Event event = registration.getEvent();
+        return new RegistrationView(
+                registration.getId(),
+                event.getId(),
+                event.getTitle(),
+                registration.getStatus(),
+                registration.isCheckedIn()
+        );
+    }
+
+    private ResponseStatusException registrationNotFound() {
+        return new ResponseStatusException(
+                HttpStatus.NOT_FOUND,
+                "Registration not found"
+        );
+    }
+
     private String generateCancellationToken() {
         byte[] bytes = new byte[32];
         secureRandom.nextBytes(bytes);

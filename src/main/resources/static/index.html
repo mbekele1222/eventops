@@ -12,9 +12,14 @@
 <nav class="navbar bg-white border-bottom">
     <div class="container">
         <a class="navbar-brand fw-bold" href="/">EventOps</a>
-        <a class="btn btn-outline-primary" href="/organizer.html">
-            Organizer
-        </a>
+        <div class="d-flex gap-2 flex-wrap">
+            <a class="btn btn-outline-secondary" href="/manage.html">
+                Manage registration
+            </a>
+            <a class="btn btn-outline-primary" href="/organizer.html">
+                Organizer
+            </a>
+        </div>
     </div>
 </nav>
 
@@ -86,6 +91,10 @@
                     <p class="small text-secondary mb-0">
                         Save this code for managing your registration.
                     </p>
+                    <a class="manage-link btn btn-outline-primary mt-3"
+                       href="/manage.html">
+                        Manage registration
+                    </a>
                 </div>
             </div>
         </article>
@@ -212,6 +221,8 @@ function connectSignupForm(card, event) {
                 "Registration #" + saved.registrationId;
             receipt.querySelector(".private-code").value =
                 saved.cancellationToken;
+            receipt.querySelector(".manage-link").href =
+                "/manage.html#code=" + encodeURIComponent(saved.cancellationToken);
             receipt.hidden = false;
             form.hidden = true;
         } catch (error) {
