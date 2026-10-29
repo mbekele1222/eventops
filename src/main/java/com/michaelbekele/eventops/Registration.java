@@ -79,6 +79,16 @@ public class Registration {
         status = RegistrationStatus.CONFIRMED;
     }
 
+    public void checkIn() {
+        if (status != RegistrationStatus.CONFIRMED) {
+            throw new IllegalStateException(
+                    "Only a confirmed registration can check in"
+            );
+        }
+        // Repeating a check-in keeps the same attendance record.
+        checkedIn = true;
+    }
+
     public Long getId() {
         return id;
     }

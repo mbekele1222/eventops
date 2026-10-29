@@ -27,7 +27,8 @@ public class SecurityConfig {
                         HttpMethod.GET, "/api/events", "/api/events/*"
                 ).permitAll()
                 .requestMatchers("/api/csrf").permitAll()
-                .requestMatchers("/organizer.html").hasRole("ORGANIZER")
+                .requestMatchers("/organizer.html", "/dashboard.html",
+                        "/api/organizer/**").hasRole("ORGANIZER")
                 .requestMatchers(HttpMethod.POST, "/api/events").hasRole("ORGANIZER")
                 .requestMatchers(
                          HttpMethod.POST,
@@ -42,7 +43,7 @@ public class SecurityConfig {
         );
 
         http.formLogin(form -> form
-                .defaultSuccessUrl("/organizer.html", true)
+                .defaultSuccessUrl("/dashboard.html", true)
                 .permitAll()
         );
 

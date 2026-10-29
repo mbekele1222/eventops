@@ -5,9 +5,44 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import java.util.List;
+import java.time.Instant;
 
 public interface RegistrationRepository
         extends JpaRepository<Registration, Long> {
+
+    interface OrganizerAttendeeRow {
+        Long getRegistrationId();
+        String getFullName();
+        String getEmail();
+        String getStatus();
+        boolean getCheckedIn();
+        Instant getCreatedAt();
+    }
+
+    @Query(value = """
+        SELECT id AS "registrationId", full_name AS "fullName",
+               email AS "email", status AS "status",
+               checked_in AS "checkedIn", created_at AS "createdAt"
+        FROM registrations
+        WHERE event_id = :eventId
+        ORDER BY id
+        """, nativeQuery = true)
+    List<OrganizerAttendeeRow> findOrganizerAttendees(
+            @Param("eventId") Long eventId
+    );
+
+    @Query(value = """
+        SELECT id, event_id, full_name, email, status,
+               cancellation_token_hash, checked_in, created_at
+        FROM registrations
+        WHERE event_id = :eventId AND id = :registrationId
+        FOR UPDATE
+        """, nativeQuery = true)
+    Optional<Registration> findForCheckIn(
+            @Param("eventId") Long eventId,
+            @Param("registrationId") Long registrationId
+    );
 
     @Query(value = """
         SELECT EXISTS (

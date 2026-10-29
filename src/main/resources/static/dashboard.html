@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="same-origin">
+    <title>Organizer dashboard | EventOps</title>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css">
+</head>
+<body class="bg-light">
+<nav class="navbar bg-white border-bottom">
+    <div class="container">
+        <a class="navbar-brand fw-bold" href="/dashboard.html">EventOps · Organizer</a>
+        <div class="d-flex gap-3 flex-wrap">
+            <a href="/">Browse events</a>
+            <a href="/organizer.html">Create an event</a>
+            <a href="/logout">Sign out</a>
+        </div>
+    </div>
+</nav>
+<main class="container py-4">
+    <h1 class="h2">Organizer dashboard</h1>
+    <p class="text-secondary">Review registrations and check in your confirmed attendees.</p>
+    <div id="pageMessage" class="alert d-none" role="status" aria-live="polite"></div>
+
+    <div class="card card-body shadow-sm mb-4">
+        <div class="d-flex gap-3 align-items-end flex-wrap">
+            <div class="flex-grow-1">
+                <label for="eventSelect" class="form-label">Event</label>
+                <select id="eventSelect" class="form-select" disabled>
+                    <option value="">Loading events...</option>
+                </select>
+            </div>
+            <button id="refreshButton" type="button" class="btn btn-outline-primary" disabled>
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <p id="emptyEvents" hidden>No events yet. <a href="/organizer.html">Create your first event.</a></p>
+    <section id="eventDetail" aria-label="Selected event" hidden>
+        <h2 id="eventTitle" class="h4"></h2>
+        <p id="eventMeta" class="text-secondary"></p>
+        <div class="row g-3 mb-3">
+            <div class="col-6 col-lg-3">
+                <div class="card card-body h-100">
+                    <span class="text-secondary">Confirmed / capacity</span>
+                    <strong id="confirmedCount" class="fs-3"></strong>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="card card-body h-100">
+                    <span class="text-secondary">Waitlisted</span>
+                    <strong id="waitlistedCount" class="fs-3"></strong>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="card card-body h-100">
+                    <span class="text-secondary">Checked in</span>
+                    <strong id="checkedInCount" class="fs-3"></strong>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="card card-body h-100">
+                    <span class="text-secondary">Cancelled</span>
+                    <strong id="cancelledCount" class="fs-3"></strong>
+                </div>
+            </div>
+        </div>
+        <p id="availableSeats" class="text-secondary small"></p>
+
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h3 class="h5">Attendees</h3>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-8">
+                        <label for="attendeeSearch" class="form-label">Search name or email</label>
+                        <input id="attendeeSearch" type="search" class="form-control"
+                               placeholder="Find an attendee" autocomplete="off" maxlength="254">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="statusFilter" class="form-label">Registration status</label>
+                        <select id="statusFilter" class="form-select">
+                            <option value="">All statuses</option>
+                            <option value="CONFIRMED">Confirmed</option>
+                            <option value="WAITLISTED">Waitlisted</option>
+                            <option value="CANCELLED">Cancelled</option>
+                        </select>
+                    </div>
+                </div>
+                <p id="rosterSummary" class="text-secondary small" role="status"></p>
+                <p id="emptyRoster" hidden></p>
+                <div class="table-responsive">
+                    <table id="attendeeTable" class="table align-middle mb-0">
+                        <caption class="visually-hidden">Registrations in signup order</caption>
+                        <thead>
+                        <tr>
+                            <th scope="col">Registration</th>
+                            <th scope="col">Name</th>
+                            <th scope="col">Email</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Attendance</th>
+                        </tr>
+                        </thead>
+                        <tbody id="attendeeRows"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+</main>
+<script>
+const eventSelect = document.getElementById("eventSelect");
+const refreshButton = document.getElementById("refreshButton");
+const pageMessage = document.getElementById("pageMessage");
+const eventDetail = document.getElementById("eventDetail");
+const attendeeRows = document.getElementById("attendeeRows");
+const search = document.getElementById("attendeeSearch");
+const statusFilter = document.getElementById("statusFilter");
+let events = [];
+let attendees = [];
+let currentEventId = null;
+let busy = false;
+
+function showMessage(text, type = "danger") {
+    pageMessage.textContent = text;
+    pageMessage.className = "alert alert-" + type;
+}
+
+function setBusy(value) {
+    busy = value;
+    eventSelect.disabled = value || events.length === 0;
+    refreshButton.disabled = value;
+    search.disabled = value;
+    statusFilter.disabled = value;
+    attendeeRows.querySelectorAll("button").forEach(button => button.disabled = value);
+    eventDetail.setAttribute("aria-busy", String(value));
+}
+
+async function readResponse(response) {
+    const contentType = response.headers.get("content-type") || "";
+    if (response.redirected || response.status === 401 || response.status === 403 ||
+            (response.ok && !contentType.includes("application/json"))) {
+        // Clear attendee details when an organizer session has expired.
+        eventDetail.hidden = true;
+        attendees = [];
+        attendeeRows.replaceChildren();
+        throw new Error("Your session expired. Sign in again using the Organizer link.");
+    }
+    if (response.status === 404) throw new Error("This event or registration could not be found. Refresh and try again.");
+    if (response.status === 409) throw new Error("This attendee is no longer confirmed. Refresh to see their current status.");
+    if (!response.ok) throw new Error("The request could not be completed. Please try again.");
+    return response.json();
+}
+
+async function getJson(path) {
+    const response = await fetch(path, {
+        credentials: "same-origin", cache: "no-store",
+        headers: {"Accept": "application/json"}
+    });
+    return readResponse(response);
+}
+
+const statusNames = {CONFIRMED: "Confirmed", WAITLISTED: "Waitlisted", CANCELLED: "Cancelled"};
+const statusColors = {CONFIRMED: "success", WAITLISTED: "warning", CANCELLED: "secondary"};
+
+function cell(row, value) {
+    const element = document.createElement("td");
+    element.textContent = value;
+    row.appendChild(element);
+    return element;
+}
+
+function renderRoster() {
+    attendeeRows.replaceChildren();
+    const query = search.value.trim().toLowerCase();
+    const visible = attendees.filter(attendee =>
+        (!statusFilter.value || attendee.status === statusFilter.value) &&
+        (!query || attendee.fullName.toLowerCase().includes(query) ||
+            attendee.email.toLowerCase().includes(query))
+    );
+    for (const attendee of visible) {
+        const row = document.createElement("tr");
+        cell(row, "#" + attendee.registrationId);
+        cell(row, attendee.fullName);
+        cell(row, attendee.email);
+        const badge = document.createElement("span");
+        badge.className = "badge text-bg-" + (statusColors[attendee.status] || "secondary");
+        badge.textContent = statusNames[attendee.status] || attendee.status;
+        cell(row, "").appendChild(badge);
+        const attendance = cell(row, "");
+        if (attendee.checkedIn) {
+            attendance.textContent = "Checked in";
+            attendance.className = "text-success fw-semibold";
+        } else if (attendee.status === "CONFIRMED") {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "btn btn-sm btn-primary";
+            button.textContent = "Check in";
+            button.setAttribute("aria-label", "Check in " + attendee.fullName);
+            button.disabled = busy;
+            button.addEventListener("click", () => checkIn(attendee));
+            attendance.appendChild(button);
+        } else {
+            attendance.textContent = "—";
+        }
+        attendeeRows.appendChild(row);
+    }
+    document.getElementById("rosterSummary").textContent =
+        "Showing " + visible.length + " of " + attendees.length + " registrations · signup order";
+    const empty = document.getElementById("emptyRoster");
+    empty.hidden = visible.length !== 0;
+    empty.textContent = attendees.length === 0
+        ? "No registrations yet. Share the public events page to get started."
+        : "No attendees match your search and status filter.";
+    document.getElementById("attendeeTable").hidden = visible.length === 0;
+}
+
+async function loadSelectedEvent() {
+    eventDetail.hidden = true;
+    attendeeRows.replaceChildren();
+    attendees = [];
+    currentEventId = eventSelect.value || null;
+    if (!currentEventId) return;
+    const detail = await getJson("/api/organizer/events/" + currentEventId);
+    const event = detail.event;
+    attendees = detail.registrations;
+    document.getElementById("eventTitle").textContent = event.title;
+    document.getElementById("eventMeta").textContent =
+        new Date(event.startsAt).toLocaleString() + " · " + event.location;
+    document.getElementById("confirmedCount").textContent = event.confirmedCount + " / " + event.capacity;
+    document.getElementById("waitlistedCount").textContent = event.waitlistedCount;
+    document.getElementById("checkedInCount").textContent = event.checkedInCount;
+    document.getElementById("cancelledCount").textContent = event.cancelledCount;
+    document.getElementById("availableSeats").textContent = event.availableSeats + " seats available";
+    renderRoster();
+    eventDetail.hidden = false;
+}
+
+async function refreshDashboard() {
+    const selected = eventSelect.value;
+    events = await getJson("/api/organizer/events");
+    eventSelect.replaceChildren();
+    document.getElementById("emptyEvents").hidden = events.length !== 0;
+    for (const event of events) {
+        const option = document.createElement("option");
+        option.value = event.eventId;
+        option.textContent = event.title + " (#" + event.eventId + ")";
+        eventSelect.appendChild(option);
+    }
+    if (events.some(event => String(event.eventId) === selected)) eventSelect.value = selected;
+    await loadSelectedEvent();
+}
+
+async function runLoad(operation) {
+    if (busy) return;
+    setBusy(true);
+    pageMessage.className = "alert d-none";
+    try {
+        await operation();
+    } catch (error) {
+        showMessage(error.message);
+    } finally {
+        setBusy(false);
+    }
+}
+
+async function checkIn(attendee) {
+    if (busy) return;
+    setBusy(true);
+    pageMessage.className = "alert d-none";
+    let saved = false;
+    try {
+        const csrf = await getJson("/api/csrf");
+        const response = await fetch("/api/organizer/events/" + currentEventId +
+            "/registrations/" + attendee.registrationId + "/check-in", {
+            method: "POST", credentials: "same-origin", cache: "no-store",
+            headers: {"Accept": "application/json", [csrf.headerName]: csrf.token}
+        });
+        await readResponse(response);
+        saved = true;
+        await refreshDashboard();
+        showMessage("Checked in: " + attendee.fullName, "success");
+    } catch (error) {
+        showMessage(saved
+            ? "Check-in was saved, but the updated list could not load. Use Refresh to try again."
+            : error.message);
+    } finally {
+        setBusy(false);
+    }
+}
+
+eventSelect.addEventListener("change", () => {
+    search.value = "";
+    statusFilter.value = "";
+    runLoad(loadSelectedEvent);
+});
+refreshButton.addEventListener("click", () => runLoad(refreshDashboard));
+search.addEventListener("input", renderRoster);
+statusFilter.addEventListener("change", renderRoster);
+runLoad(refreshDashboard);
+</script>
+</body>
+</html>
