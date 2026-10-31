@@ -233,7 +233,8 @@ async function loadSelectedEvent() {
     document.getElementById("waitlistedCount").textContent = event.waitlistedCount;
     document.getElementById("checkedInCount").textContent = event.checkedInCount;
     document.getElementById("cancelledCount").textContent = event.cancelledCount;
-    document.getElementById("availableSeats").textContent = event.availableSeats + " seats available";
+    document.getElementById("availableSeats").textContent = event.availableSeats +
+        (event.availableSeats === 1 ? " seat available" : " seats available");
     renderRoster();
     eventDetail.hidden = false;
 }
